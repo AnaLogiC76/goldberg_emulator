@@ -27,6 +27,10 @@
 #include <string>
 #include <vector>
 
+uint32_t uWaitForAppID = 673950;
+std::string sLaunchExecutable = "C:\\test\\Farm Together\\FarmTogether.exe";
+std::string sLaunchParams = "-gpu 1";
+
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -38,6 +42,106 @@ int main() {
         SteamAPI_RestartAppIfNecessary(LOBBY_CONNECT_APPID);
         std::cout << "This is a program to find lobbies and run the game with lobby connect parameters" << std::endl;
         std::cout << "Api initialized, ";
+
+        if (uWaitForAppID) {
+            std::string connect_exist;
+            bool log_initial = true;
+            bool log_known = true;
+
+            for (;;) {
+                if (log_initial) {
+                    log_initial = false;
+                    std::cout << "Wait for new instance with AppID " << uWaitForAppID;
+                }
+
+                std::string connect_new;
+
+                SteamAPI_RunCallbacks();
+
+                int friend_count = SteamFriends()->GetFriendCount(k_EFriendFlagAll);
+
+                for (int i = 0; connect_new.empty() && i < friend_count; ++i) {
+                    CSteamID id = SteamFriends()->GetFriendByIndex(i, k_EFriendFlagAll);
+
+                    FriendGameInfo_t friend_info = {};
+                    SteamFriends()->GetFriendGamePlayed(id, &friend_info);
+
+                    if (uWaitForAppID == friend_info.m_gameID.AppID()) {
+                        const char *name = SteamFriends()->GetFriendPersonaName(id);
+                        const char *connect = SteamFriends()->GetFriendRichPresence( id, "connect");
+
+                        if (strlen(connect) > 0) {
+                            connect_new = connect;
+                        } else if (friend_info.m_steamIDLobby != k_steamIDNil) {
+                            connect_new = "+connect_lobby " + std::to_string(friend_info.m_steamIDLobby.ConvertToUint64());
+                        } else {
+                            continue;
+                        }
+
+                        if (connect_new != connect_exist) {
+                            log_known = true;
+                            std::cout << std::endl << "NEW   instance by " << name << " found, trying to join." << std::endl;
+                        }
+                        else {
+                            if (log_known) {
+                                log_known = false;
+                                std::cout << std::endl << "KNOWN instance by " << name << " found, ignoring." << std::endl;
+                            }
+                            connect_new.clear();
+                        }
+                    }
+                }
+
+                if (connect_new.empty())
+                {
+                    std::cout << '.';
+                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                    continue;
+                }
+
+                log_initial = true;
+                connect_exist = connect_new;
+
+                std::string commandline = "\"" + sLaunchExecutable + "\" " + connect_new;
+                if (!sLaunchParams.empty()) {
+                    commandline += ' ';
+                    commandline += sLaunchParams;
+                }
+                std::cout << "Executing: \"" + commandline + "\"...";
+
+                STARTUPINFOA lpStartupInfo;
+                PROCESS_INFORMATION lpProcessInfo;
+
+                ZeroMemory( &lpStartupInfo, sizeof( lpStartupInfo ) );
+                lpStartupInfo.cb = sizeof( lpStartupInfo );
+                ZeroMemory( &lpProcessInfo, sizeof( lpProcessInfo ) );
+
+                if (!CreateProcessA( NULL,
+                            const_cast<char *>(commandline.c_str()), NULL, NULL,
+                            NULL, NULL, NULL, NULL,
+                            &lpStartupInfo,
+                            &lpProcessInfo
+                            )) {
+                    std::cout << std::endl <<"ERROR: CreateProcess returned " << GetLastError() << std::endl;
+                    exit(1);
+                }
+
+                std::cout << "pid " << lpProcessInfo.dwProcessId << std::endl;
+                std::cout << "Waiting for process to exit." << std::endl;
+
+                CloseHandle(lpProcessInfo.hThread);
+
+                WaitForSingleObject(lpProcessInfo.hProcess, INFINITE);
+
+                DWORD dwExitCode = -1;
+                GetExitCodeProcess(lpProcessInfo.hProcess, &dwExitCode);
+                CloseHandle(lpProcessInfo.hProcess);
+
+                std::cout << "Process exited with code " << dwExitCode << "." << std::endl << "---" << std::endl;
+            }
+
+            /* Will lopp until process termination. */
+        }
 top:
         std::cout << "waiting a few seconds for connections:" << std::endl;
         for (int i = 0; i < 10; ++i) {
