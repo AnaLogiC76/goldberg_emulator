@@ -27,23 +27,86 @@
 #include <string>
 #include <vector>
 
-uint32_t uWaitForAppID = 673950;
+/*uint32_t uWaitForAppID = 673950;
 std::string sLaunchExecutable = "C:\\test\\Farm Together\\FarmTogether.exe";
-std::string sLaunchParams = "-gpu 1";
+std::string sLaunchParams = "-gpu 1";*/
+uint32_t uWaitForAppID = 0;
+std::string sLaunchExecutable;
+std::string sLaunchParams;
+bool bRunOnce = true;
 
 #ifdef _WIN32
 #include <windows.h>
 #else
 
 #endif
-int main() {
+int main(int args, const char *argv[]) {
     if (SteamAPI_Init()) {
         //Set appid to: LOBBY_CONNECT_APPID
         SteamAPI_RestartAppIfNecessary(LOBBY_CONNECT_APPID);
         std::cout << "This is a program to find lobbies and run the game with lobby connect parameters" << std::endl;
         std::cout << "Api initialized, ";
 
-        if (uWaitForAppID) {
+        for (const char **p=argv+1, **end=argv+args;p!=end;++p) {
+            if (**p=='-') {
+                std::string cmd(*p+1);
+                std::transform(cmd.begin(), cmd.end(), cmd.begin(), [](unsigned char c){ return std::tolower(c); });
+
+                if (++p==end) {
+                    break;
+                }
+
+                if (cmd=="mode") {
+                    std::string param(*p+1);
+                    std::transform(param.begin(), param.end(), param.begin(), [](unsigned char c){ return std::tolower(c); });
+
+                    if (param=="once") {
+                        bRunOnce = true;
+                    }
+                    else if (param=="loop") {
+                        bRunOnce = false;
+                    }
+                }
+                else if (cmd=="appid") {
+                    uWaitForAppID = std::strtoul(*p, nullptr, 10);
+                }
+                else if (cmd=="run") {
+                    sLaunchExecutable = *p;
+                    while (++p != end) {
+                        bool needs_quotes = false;
+                        std::string param;
+
+                        for (const char *p_param=*p;*p_param != 0;++p_param) {
+                            switch (*p_param) {
+                                case ' ' :
+                                    needs_quotes = true;
+                                    break;
+                                case '"' :
+                                    param+='\\';
+                                    break;
+                                default :
+                                    break;
+                            }
+                            param+=*p_param;
+                        }
+
+                        if (!sLaunchParams.empty()) {
+                            sLaunchParams += ' ';
+                        }
+                        if (needs_quotes) {
+                            sLaunchParams += '"';
+                        }
+                        sLaunchParams += param;
+                        if (needs_quotes) {
+                            sLaunchParams += '"';
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (uWaitForAppID && !sLaunchExecutable.empty()) {
             std::string connect_exist;
             bool log_initial = true;
             bool log_known = true;
@@ -141,6 +204,9 @@ int main() {
             }
 
             /* Will lopp until process termination. */
+            if (bRunOnce) {
+                return 0;
+            }
         }
 top:
         std::cout << "waiting a few seconds for connections:" << std::endl;
